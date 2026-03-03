@@ -5,6 +5,7 @@ import soundfile as sf
 from scipy.signal import butter, sosfiltfilt, correlate, chirp, spectrogram
 import matplotlib.pyplot as plt
 
+a=1
 
 def chirp_align_and_extract(ref_sig, deg_sig, fs, ref_path, deg_path):
     print(">> Synchronizing using precise Chirp Correlation...")
