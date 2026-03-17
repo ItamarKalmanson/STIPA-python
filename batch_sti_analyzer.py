@@ -15,20 +15,14 @@ def parse_filename(filename):
     Parses a filename like 'stipa_0.17s_ambient noise_SNR-10dB.wav'
     to extract theoretical RT60 and SNR values.
     """
-    # Default values if parsing fails
     theoretical_rt60 = np.nan
     theoretical_snr = np.nan
-
-    # Extract RT60 (e.g., '0.17s')
     rt60_match = re.search(r'(\d+\.\d+)s', filename)
     if rt60_match:
         theoretical_rt60 = float(rt60_match.group(1))
-
-    # Extract SNR (e.g., 'SNR-10dB' or 'SNR10dB')
     snr_match = re.search(r'SNR(-?\d+)', filename)
     if snr_match:
         theoretical_snr = float(snr_match.group(1))
-
     return theoretical_rt60, theoretical_snr
 
 
@@ -37,11 +31,9 @@ def run_batch_analysis(root_dir, ref_file):
     Analyzes all .wav files in a directory, collects results,
     and generates summary plots for debugging.
     """
-    # Find all .wav files to be analyzed
     degraded_files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for f in filenames:
-            # Ensure we only grab wav files and exclude the reference file itself
             if f.endswith('.wav') and 'ref' not in f.lower():
                 degraded_files.append(os.path.join(dirpath, f))
 
@@ -51,66 +43,43 @@ def run_batch_analysis(root_dir, ref_file):
 
     print(f"Found {len(degraded_files)} files to analyze. Starting batch processing...")
 
-    # Run analysis on each file and collect the results
     all_results = []
     for deg_file in tqdm(degraded_files, desc="Analyzing Files"):
-        # For batch processing, we assume files are pre-aligned to save time.
-        # Set show_plots=False to prevent a plot window for every single file.
         results = analyze_sti(ref_file, deg_file, align_the_signals=False, show_plots=False)
+        if results:
+            theo_rt60, theo_snr = parse_filename(results['filename'])
+            results['theoretical_rt60'] = theo_rt60
+            results['theoretical_snr'] = theo_snr
+            all_results.append(results)
 
-        # Parse filename for theoretical values and add them to the results
-        theo_rt60, theo_snr = parse_filename(results['filename'])
-        results['theoretical_rt60'] = theo_rt60
-        results['theoretical_snr'] = theo_snr
-
-        all_results.append(results)
-
-    # Convert results to a pandas DataFrame for easier handling
     df = pd.DataFrame(all_results)
 
-    # --- Create new columns for enhanced debugging ---
-    df['snr_error'] = df['avg_snr'] - df['theoretical_snr']
-
-    def get_primary_issue(row):
-        noise = row['noise_damage_percent']
-        reverb = row['reverb_damage_percent']
-        if noise > 65: return "Noise"
-        if reverb > 65: return "Reverb"
-        if noise > 40 and reverb > 40: return "Mixed"
-        if noise > reverb: return "Mainly Noise"
-        return "Mainly Reverb"
-
-    df['primary_issue'] = df.apply(get_primary_issue, axis=1)
-
     # --- 1. Print Summary Report ---
-    print("\n" + "=" * 120)
-    print("📊 Batch STI Analysis Summary Report 📊".center(120))
-    print("=" * 120)
-
+    print("\n" + "=" * 160)
+    print("📊 Batch STI Analysis Summary Report 📊".center(160))
+    print("=" * 160)
     display_cols = [
-        'filename', 'sti_score', 'primary_issue', 'noise_damage_percent', 'reverb_damage_percent',
-        'avg_snr', 'theoretical_snr', 'snr_error', 'theoretical_rt60'
+        'filename', 'sti_score', 
+        'standard_noise_percent', 'simple_noise_percent',
+        'standard_reverb_percent', 'simple_reverb_percent',
+        'avg_snr', 'theoretical_snr'
     ]
     display_df = df[[col for col in display_cols if col in df.columns]].copy()
-
     pd.set_option('display.max_rows', None)
-    pd.set_option('display.width', 150)
+    pd.set_option('display.width', 200)
     print(display_df.to_string(
         formatters={
             'sti_score': '{:,.3f}'.format,
-            'noise_damage_percent': '{:,.1f}%'.format,
-            'reverb_damage_percent': '{:,.1f}%'.format,
-            'avg_snr': '{:,.1f}'.format,
-            'theoretical_snr': '{:,.1f}'.format,
-            'snr_error': '{:,.1f}'.format,
-            'theoretical_rt60': '{:,.2f}'.format,
-            'filename': lambda x: (x[:45] + '...') if len(x) > 48 else x
+            'standard_noise_percent': '{:,.1f}%'.format, 'simple_noise_percent': '{:,.1f}%'.format,
+            'standard_reverb_percent': '{:,.1f}%'.format, 'simple_reverb_percent': '{:,.1f}%'.format,
+            'avg_snr': '{:,.1f}'.format, 'theoretical_snr': '{:,.1f}'.format,
+            'filename': lambda x: (x[:35] + '...') if len(x) > 38 else x
         },
         index=False
     ))
-    print("=" * 120)
+    print("=" * 160)
 
-    # --- 3. Save Report to CSV ---
+    # --- 2. Save Report to CSV ---
     report_filename = 'sti_batch_analysis_report.csv'
     try:
         df.to_csv(report_filename, index=False, float_format='%.3f')
@@ -118,86 +87,118 @@ def run_batch_analysis(root_dir, ref_file):
     except Exception as e:
         print(f"\n❌ Could not save report to CSV: {e}")
 
-    # --- 4. Generate Debugging Plots ---
-    print("\nGenerating summary and debugging plots...")
+    # --- 3. Generate New Comparison Plots ---
+    print("\nGenerating model comparison plots...")
     plt.style.use('seaborn-v0_8-whitegrid')
-    fig, axes = plt.subplots(2, 2, figsize=(20, 14), constrained_layout=True)
-    fig.suptitle('STI Batch Analysis Dashboard', fontsize=22)
 
-    # Plot 1: STI vs. Theoretical RT60
-    ax1 = axes[0, 0]
-    sns.scatterplot(data=df, x='theoretical_rt60', y='sti_score', hue='theoretical_snr', palette='coolwarm_r', ax=ax1,
-                    s=70, legend='auto')
-    ax1.set_title('1. STI Score vs. Theoretical RT60', fontsize=16)
-    ax1.set_xlabel('Theoretical RT60 (s) from Filename', fontsize=12)
-    ax1.set_ylabel('Measured STI Score', fontsize=12)
-    ax1.grid(True, which="both", ls="--")
+    # --- Prepare data for plotting ---
+    df_perc = df.melt(id_vars=['theoretical_rt60', 'theoretical_snr'],
+                      value_vars=['standard_noise_percent', 'simple_noise_percent', 'standard_reverb_percent', 'simple_reverb_percent'],
+                      var_name='Metric', value_name='Percentage')
+    df_perc[['Model', 'Damage Type', '_']] = df_perc['Metric'].str.split('_', expand=True)
+    df_perc['Damage Type'] = df_perc['Damage Type'].str.capitalize()
 
-    # Plot 2: STI vs. Theoretical SNR
-    ax2 = axes[0, 1]
-    sns.scatterplot(data=df, x='theoretical_snr', y='sti_score', hue='theoretical_rt60', palette='viridis', ax=ax2,
-                    s=70, legend='auto')
-    ax2.set_title('2. STI Score vs. Theoretical SNR', fontsize=16)
-    ax2.set_xlabel('Theoretical SNR (dB) from Filename', fontsize=12)
-    ax2.set_ylabel('Measured STI Score', fontsize=12)
-    ax2.grid(True, which="both", ls="--")
+    df_abs = df.melt(id_vars=['theoretical_rt60', 'theoretical_snr'],
+                     value_vars=['standard_noise_loss', 'simple_noise_loss', 'standard_reverb_loss', 'simple_reverb_loss'],
+                     var_name='Metric', value_name='Absolute Loss')
+    df_abs[['Model', 'Damage Type', '_']] = df_abs['Metric'].str.split('_', expand=True)
+    df_abs['Damage Type'] = df_abs['Damage Type'].str.capitalize()
 
-    # Plot 3: Damage Attribution Map
-    ax3 = axes[1, 0]
-    sns.scatterplot(data=df, x='noise_damage_percent', y='reverb_damage_percent', hue='sti_score', palette='inferno',
-                    ax=ax3, s=70)
-    ax3.set_title('3. Damage Attribution Map', fontsize=16)
-    ax3.set_xlabel('Noise Damage (%)', fontsize=12)
-    ax3.set_ylabel('Reverberation Damage (%)', fontsize=12)
-    ax3.grid(True, which="both", ls="--")
 
-    # Plot 4: Measured SNR vs. Theoretical SNR (DEBUG PLOT)
-    ax4 = axes[1, 1]
-    sns.scatterplot(data=df, x='theoretical_snr', y='avg_snr', hue='snr_error', palette='bwr', ax=ax4, s=70)
-    lims = [
-        min(df['theoretical_snr'].min() - 2, df['avg_snr'].min() - 2),
-        max(df['theoretical_snr'].max() + 2, df['avg_snr'].max() + 2),
-    ]
-    ax4.plot(lims, lims, 'k--', alpha=0.75, zorder=0, label='Ideal Correlation (y=x)')
-    ax4.set_title('4. DEBUG: Measured vs. Theoretical SNR', fontsize=16)
-    ax4.set_xlabel('Theoretical SNR (dB) from Filename', fontsize=12)
-    ax4.set_ylabel('Measured Average SNR (dB)', fontsize=12)
-    ax4.legend()
-    ax4.grid(True, which="both", ls="--")
-    ax4.set_xlim(lims)
-    ax4.set_ylim(lims)
+    # --- Figure 1: Damage Percentage vs. RT60 (2x2 Layout) ---
+    fig1, axes1 = plt.subplots(2, 2, figsize=(20, 18), constrained_layout=True, sharey=True)
+    fig1.suptitle('Model Comparison: Damage Percentage vs. RT60', fontsize=22)
 
-    # --- Figure 2: Detailed Reverb Damage Analysis ---
-    fig2, ax5 = plt.subplots(figsize=(16, 10))
-    fig2.suptitle('Detailed Analysis: Reverb Damage vs. Theoretical RT60', fontsize=18)
+    # Plot 1.1 (Top-Left): Standard Model, Noise %
+    ax = axes1[0, 0]
+    data = df_perc[(df_perc['Model'] == 'standard') & (df_perc['Damage Type'] == 'Noise')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Percentage', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Standard Model: Noise Damage', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('Damage (%)', fontsize=12)
+    ax.legend(title='SNR (dB)')
 
-    sns.scatterplot(data=df, x='theoretical_rt60', y='reverb_damage_percent', hue='theoretical_snr',
-                    style='primary_issue', palette='coolwarm_r', ax=ax5, s=80)
-    ax5.set_xlabel('Theoretical RT60 (s) from Filename', fontsize=12)
-    ax5.set_ylabel('Measured Reverb Damage (%)', fontsize=12)
-    ax5.grid(True, which="both", ls="--")
-    ax5.legend(title='Theoretical SNR (dB)')
+    # Plot 1.2 (Top-Right): Standard Model, Reverb %
+    ax = axes1[0, 1]
+    data = df_perc[(df_perc['Model'] == 'standard') & (df_perc['Damage Type'] == 'Reverb')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Percentage', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Standard Model: Reverb Damage', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('') # Shared Y-axis
+    ax.legend(title='SNR (dB)')
 
-    # Add STIPA score labels to each point for enhanced debugging
-    for _, row in df.iterrows():
-        if pd.notna(row['theoretical_rt60']) and pd.notna(row['reverb_damage_percent']):
-            ax5.text(x=row['theoretical_rt60'],
-                     y=row['reverb_damage_percent'] + 1.2,  # Small vertical offset
-                     s=f"{row['sti_score']:.2f}",
-                     fontdict={'size': 8, 'color': 'dimgray'},
-                     ha='center')
+    # Plot 1.3 (Bottom-Left): Simplified Model, Noise %
+    ax = axes1[1, 0]
+    data = df_perc[(df_perc['Model'] == 'simple') & (df_perc['Damage Type'] == 'Noise')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Percentage', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Simplified Model: Noise Damage', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('Damage (%)', fontsize=12)
+    ax.legend(title='SNR (dB)')
+
+    # Plot 1.4 (Bottom-Right): Simplified Model, Reverb %
+    ax = axes1[1, 1]
+    data = df_perc[(df_perc['Model'] == 'simple') & (df_perc['Damage Type'] == 'Reverb')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Percentage', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Simplified Model: Reverb Damage', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('') # Shared Y-axis
+    ax.legend(title='SNR (dB)')
+
+    for ax in axes1.flat:
+        ax.grid(True, which="both", ls="--")
+        ax.set_ylim(-5, 105)
+
+
+    # --- Figure 2: Absolute Damage vs. RT60 (2x2 Layout) ---
+    fig2, axes2 = plt.subplots(2, 2, figsize=(20, 18), constrained_layout=True, sharey=True)
+    fig2.suptitle('Model Comparison: Absolute STI Loss vs. RT60', fontsize=22)
+
+    # Plot 2.1 (Top-Left): Standard Model, Noise Loss
+    ax = axes2[0, 0]
+    data = df_abs[(df_abs['Model'] == 'standard') & (df_abs['Damage Type'] == 'Noise')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Absolute Loss', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Standard Model: Noise Loss', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('Absolute STI Loss (Points)', fontsize=12)
+    ax.legend(title='SNR (dB)')
+
+    # Plot 2.2 (Top-Right): Standard Model, Reverb Loss
+    ax = axes2[0, 1]
+    data = df_abs[(df_abs['Model'] == 'standard') & (df_abs['Damage Type'] == 'Reverb')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Absolute Loss', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Standard Model: Reverb Loss', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('') # Shared Y-axis
+    ax.legend(title='SNR (dB)')
+
+    # Plot 2.3 (Bottom-Left): Simplified Model, Noise Loss
+    ax = axes2[1, 0]
+    data = df_abs[(df_abs['Model'] == 'simple') & (df_abs['Damage Type'] == 'Noise')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Absolute Loss', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Simplified Model: Noise Loss', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('Absolute STI Loss (Points)', fontsize=12)
+    ax.legend(title='SNR (dB)')
+
+    # Plot 2.4 (Bottom-Right): Simplified Model, Reverb Loss
+    ax = axes2[1, 1]
+    data = df_abs[(df_abs['Model'] == 'simple') & (df_abs['Damage Type'] == 'Reverb')]
+    sns.lineplot(data=data, x='theoretical_rt60', y='Absolute Loss', hue='theoretical_snr', palette='coolwarm', marker='o', ax=ax)
+    ax.set_title('Simplified Model: Reverb Loss', fontsize=16)
+    ax.set_xlabel('Theoretical RT60 (s)', fontsize=12)
+    ax.set_ylabel('') # Shared Y-axis
+    ax.legend(title='SNR (dB)')
+
+    for ax in axes2.flat:
+        ax.grid(True, which="both", ls="--")
+        ax.set_ylim(bottom=-0.05)
 
     plt.show()
 
 
 if __name__ == '__main__':
-    # --- CONFIGURE BATCH ANALYSIS HERE ---
-
-    # The folder containing all your degraded recordings.
-    # This script will search recursively through all subfolders.
     recordings_folder = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\small dataset\dataset"
-
-    # The clean, original STIPA signal
     reference_audio = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\STIPA ref.wav"
 
     if not os.path.isdir(recordings_folder):

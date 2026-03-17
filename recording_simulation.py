@@ -111,10 +111,10 @@ def generate_stipa_dataset_from_folder(clean_path, rir_dir, noise_path, snr_leve
 # ==========================================
 
 # 2. הגדרת רמות SNR מבוקשות (בדציבלים)
-my_snrs = [-10, 10]
-my_rir_folder = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\all_reverbs_folder"
+my_snrs = [-10, 0, 10]
+my_rir_folder = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\reverb for check"
 noise_file = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\ambient noise.wav"
 clean_file = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\STIPA ref.wav"
 
 # 3. הרצת הפונקציה
-generate_stipa_dataset_from_folder(clean_file, my_rir_folder, noise_file, my_snrs)
+generate_stipa_dataset_from_folder(clean_file, my_rir_folder, noise_file, my_snrs, output_dir = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\reverb for check")

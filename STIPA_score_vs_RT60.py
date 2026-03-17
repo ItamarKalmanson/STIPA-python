@@ -183,6 +183,6 @@ def run_minimal_analysis(target_folder):
 
 if __name__ == "__main__":
     # החלף לנתיב שלך
-    folder_with_recordings = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\stipa_dataset full"
+    folder_with_recordings = r"C:\Users\itama\OneDrive\מסמכים\GitHub\STIPA-python\STIPA-recs\STIPA recs simulations\reverb for check"
 
     run_minimal_analysis(folder_with_recordings)
